@@ -36,11 +36,11 @@ def format_todo(todo: Todo) -> str:
     """
     # Determine status emoji
     if todo.completed:
-        status_emoji = '✅'
+        status_emoji = '✓'
     elif todo.skipped:
-        status_emoji = '⏭️'
+        status_emoji = '⁉'
     else:
-        status_emoji = '⏳'
+        status_emoji = '✗'
     
     # Parse ISO timestamps and format them
     created_at = datetime.fromisoformat(todo.created_at.replace('Z', '+00:00') if 'Z' in todo.created_at else todo.created_at)
@@ -52,11 +52,12 @@ def format_todo(todo: Todo) -> str:
     elif todo.skipped:
         status_text = "Status: Skipped"
     else:
-        status_text = "Status: Active"
+        status_text = "Status: Not completed"
     
     return f"""
-## {todo.title} {status_emoji}
+## {todo.order}. {todo.title} {status_emoji}
 
+Order: {todo.order}
 ID: {todo.id}
 {status_text}
 Created: {created_at.strftime('%Y-%m-%d %H:%M:%S')}

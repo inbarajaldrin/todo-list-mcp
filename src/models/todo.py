@@ -28,6 +28,7 @@ class Todo(BaseModel):
     - Description supports markdown for rich text formatting
     - Completion status is tracked both as a boolean flag and with a timestamp
     - Skipped status is tracked with a timestamp (can be overwritten by completion)
+    - Order field determines the position in the list
     """
     id: str
     title: str
@@ -38,6 +39,7 @@ class Todo(BaseModel):
     skipped_at: Optional[str] = Field(None, alias="skippedAt")  # ISO timestamp when skipped, None if not skipped
     created_at: str = Field(alias="createdAt")
     updated_at: str = Field(alias="updatedAt")
+    order: int = Field(alias="order")  # Position/order in the list
     
     class Config:
         populate_by_name = True  # Allow both snake_case and camelCase
@@ -53,15 +55,16 @@ class Todo(BaseModel):
 # - Keeps validation focused on only what's needed for each operation
 # - Makes the API more intuitive by clearly defining what each operation expects
 
-# Schema for creating a new todo - requires title and description
+# Schema for creating a new todo - requires title, description, and order
 class CreateTodoSchema(BaseModel):
     title: str = Field(..., min_length=1, description="Title is required")
     description: str = Field(..., min_length=1, description="Description is required")
+    order: int = Field(..., ge=1, description="Order/position to create at (1-based, required)")
 
 
 # Schema for creating multiple todos at once
 class CreateTodosSchema(BaseModel):
-    todos: list[CreateTodoSchema] = Field(..., min_items=1, description="List of todos to create (at least one required)")
+    todos: list[CreateTodoSchema] = Field(..., min_items=1, description="List of todos to create (at least one required, each must have order)")
 
 
 # Schema for skipping todos - accepts one or more IDs
@@ -69,12 +72,18 @@ class SkipTodosSchema(BaseModel):
     ids: list[str] = Field(..., min_items=1, description="List of todo IDs to skip (at least one required)")
 
 
-# Schema for updating a todo - requires ID, title and description are optional
+# Schema for marking todos as not completed - accepts one or more IDs
+class MarkTodosNotCompletedSchema(BaseModel):
+    ids: list[str] = Field(..., min_items=1, description="List of todo IDs to mark as not completed (at least one required)")
+
+
+# Schema for updating a todo - requires ID, title, description, and order are optional
 class UpdateTodoSchema(BaseModel):
     id: str = Field(..., pattern=r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', 
                      description="Invalid Todo ID")
-    title: Optional[str] = Field(None, min_length=1, description="Title is required")
-    description: Optional[str] = Field(None, min_length=1, description="Description is required")
+    title: Optional[str] = Field(None, min_length=1, description="Title is optional")
+    description: Optional[str] = Field(None, min_length=1, description="Description is optional")
+    order: Optional[int] = Field(None, ge=1, description="Order/position to move todo to (1-based, optional)")
 
 
 # Schema for completing a todo - requires only ID
@@ -99,7 +108,19 @@ class SearchTodosByDateSchema(BaseModel):
     date: str = Field(..., pattern=r'^\d{4}-\d{2}-\d{2}$', description="Date must be in YYYY-MM-DD format")
 
 
-def create_todo(data: CreateTodoSchema) -> Todo:
+# Schema for inserting a todo at a specific order
+class InsertTodoSchema(BaseModel):
+    title: str = Field(..., min_length=1, description="Title is required")
+    description: str = Field(..., min_length=1, description="Description is required")
+    order: Optional[int] = Field(None, ge=1, description="Order/position to insert at (1-based). If not provided, inserts at the end.")
+
+
+# Schema for inserting multiple todos at specific orders
+class InsertTodosSchema(BaseModel):
+    todos: list[InsertTodoSchema] = Field(..., min_items=1, description="List of todos to insert (at least one required)")
+
+
+def create_todo(data: CreateTodoSchema, order: Optional[int] = None) -> Todo:
     """
     Factory Function: create_todo
     
@@ -110,7 +131,8 @@ def create_todo(data: CreateTodoSchema) -> Todo:
     - Makes it easy to change the implementation without affecting code that creates todos
     
     Args:
-        data: The validated input data (title and description)
+        data: The validated input data (title, description, and order)
+        order: Optional order override. If None, uses data.order.
     
     Returns:
         A fully formed Todo object with generated ID and timestamps
@@ -125,6 +147,7 @@ def create_todo(data: CreateTodoSchema) -> Todo:
         skipped=False,
         skipped_at=None,
         created_at=now,
-        updated_at=now
+        updated_at=now,
+        order=order if order is not None else data.order
     )
 

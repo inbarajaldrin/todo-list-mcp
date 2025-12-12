@@ -6,27 +6,30 @@ A Model Context Protocol (MCP) server that provides a comprehensive API for mana
 
 ## Features
 
-- Create, update, complete, delete, and skip todos
+- Create, insert, update, complete, delete, and skip todos
 - Bulk create multiple todos at once
+- Insert todos at specific orders in the list
 - Search todos by title or creation date
-- List active todos and generate summaries
+- List active todos
 - Clear entire todo list
 - SQLite database for persistence
 
 ## Tools
 
-1. `create-todo` - Create one or more todo items (single or bulk)
-2. `list-todos` - List all todos
-3. `get-todo` - Get a specific todo by ID
-4. `update-todo` - Update a todo's title or description
-5. `complete-todo` - Mark a todo as completed
-6. `delete-todo` - Delete a todo
-7. `skip-todo` - Mark one or more non-completed todos as skipped
-8. `search-todos-by-title` - Search todos by title (case-insensitive)
-9. `search-todos-by-date` - Search todos by creation date (YYYY-MM-DD)
-10. `list-active-todos` - List all non-completed todos
-11. `summarize-active-todos` - Generate a summary of active todos
-12. `clear-todo-list` - Clear all todos from the list
+1. `create-todo` - Create one or more todo items
+2. `insert-todo` - Insert one or more todo items at a specific order
+3. `list-todos` - List all todos
+4. `get-todo` - Get a specific todo by ID
+5. `update-todo` - Update a todo's title or description
+6. `complete-todo` - Mark a todo as completed
+7. `delete-todo` - Delete a todo
+8. `skip-todo` - Mark one or more non-completed todos as skipped
+9. `search-todos-by-title` - Search todos by title (case-insensitive)
+10. `search-todos-by-date` - Search todos by creation date (YYYY-MM-DD)
+11. `list-active-todos` - List all non-completed todos
+12. `read-next-todo` - Get the next todo after the most recently completed todo
+13. `mark-todos-not-completed` - Mark one or more todos as not completed (active)
+14. `clear-todo-list` - Clear all todos from the list
 
 ## Installation
 

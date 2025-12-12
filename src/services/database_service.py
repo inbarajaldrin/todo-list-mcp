@@ -62,7 +62,8 @@ class DatabaseService:
                 completedAt TEXT NULL, -- ISO timestamp, NULL if not completed
                 skippedAt TEXT NULL, -- ISO timestamp, NULL if not skipped
                 createdAt TEXT NOT NULL,
-                updatedAt TEXT NOT NULL
+                updatedAt TEXT NOT NULL,
+                "order" INTEGER NOT NULL DEFAULT 0 -- Order/position in the list
             )
         ''')
         self.db.commit()
@@ -70,6 +71,20 @@ class DatabaseService:
         # Add skippedAt column to existing tables (migration)
         try:
             self.db.execute('ALTER TABLE todos ADD COLUMN skippedAt TEXT NULL')
+            self.db.commit()
+        except sqlite3.OperationalError:
+            # Column already exists, ignore
+            pass
+        
+        # Add order column to existing tables (migration)
+        try:
+            self.db.execute('ALTER TABLE todos ADD COLUMN "order" INTEGER NOT NULL DEFAULT 0')
+            self.db.commit()
+            # Migrate existing todos: assign order based on createdAt
+            cursor = self.db.execute('SELECT id, createdAt FROM todos ORDER BY createdAt')
+            todos = cursor.fetchall()
+            for index, (todo_id, _) in enumerate(todos, start=1):
+                self.db.execute('UPDATE todos SET "order" = ? WHERE id = ?', (index, todo_id))
             self.db.commit()
         except sqlite3.OperationalError:
             # Column already exists, ignore

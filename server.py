@@ -34,6 +34,9 @@ from src.models.todo import (
     CompleteTodoSchema,
     DeleteTodoSchema,
     SkipTodosSchema,
+    MarkTodosNotCompletedSchema,
+    InsertTodoSchema,
+    InsertTodosSchema,
     SearchTodosByTitleSchema,
     SearchTodosByDateSchema
 )
@@ -119,13 +122,37 @@ async def handle_tool_call(tool_name: str, arguments: dict[str, Any]) -> list[Te
                     result = format_todo_list(created_todos)
                     return [TextContent(type="text", text=f"✅ {len(created_todos)} Todos Created:\n\n{result}")]
             else:
-                # Single todo (backward compatibility)
+                # Single todo - order is required
+                if "order" not in arguments:
+                    return [TextContent(type="text", text=create_error_response("Order is required for create-todo. Please provide an order (1-based) where to create the todo.")["content"][0]["text"])]
                 validated_data = CreateTodoSchema(**arguments)
                 new_todo = todo_service.create_todo(validated_data)
                 result = format_todo(new_todo)
                 return [TextContent(type="text", text=f"✅ Todo Created:\n\n{result}")]
         except Exception as e:
             return [TextContent(type="text", text=create_error_response(f"Failed to create todo: {str(e)}")["content"][0]["text"])]
+    
+    elif tool_name == "insert-todo":
+        try:
+            # Check if it's a single todo or multiple todos
+            if "todos" in arguments and isinstance(arguments["todos"], list):
+                # Multiple todos
+                validated_data = InsertTodosSchema(**arguments)
+                inserted_todos = todo_service.insert_todos(validated_data.todos)
+                if len(inserted_todos) == 1:
+                    result = format_todo(inserted_todos[0])
+                    return [TextContent(type="text", text=f"✅ Todo Inserted:\n\n{result}")]
+                else:
+                    result = format_todo_list(inserted_todos)
+                    return [TextContent(type="text", text=f"✅ {len(inserted_todos)} Todos Inserted:\n\n{result}")]
+            else:
+                # Single todo
+                validated_data = InsertTodoSchema(**arguments)
+                new_todo = todo_service.insert_todo(validated_data)
+                result = format_todo(new_todo)
+                return [TextContent(type="text", text=f"✅ Todo Inserted:\n\n{result}")]
+        except Exception as e:
+            return [TextContent(type="text", text=create_error_response(f"Failed to insert todo: {str(e)}")["content"][0]["text"])]
     
     elif tool_name == "list-todos":
         result = safe_execute(
@@ -168,7 +195,7 @@ async def handle_tool_call(tool_name: str, arguments: dict[str, Any]) -> list[Te
             if not completed_todo:
                 return [TextContent(type="text", text=create_error_response(f"Todo with ID {validated_data.id} not found")["content"][0]["text"])]
             result = format_todo(completed_todo)
-            return [TextContent(type="text", text=f"✅ Todo Completed:\n\n{result}")]
+            return [TextContent(type="text", text=f"✓ Todo Completed:\n\n{result}")]
         except Exception as e:
             return [TextContent(type="text", text=create_error_response(f"Failed to complete todo: {str(e)}")["content"][0]["text"])]
     
@@ -212,15 +239,6 @@ async def handle_tool_call(tool_name: str, arguments: dict[str, Any]) -> list[Te
             return [TextContent(type="text", text=create_error_response(result.args[0] if result.args else "Unknown error")["content"][0]["text"])]
         return [TextContent(type="text", text=result)]
     
-    elif tool_name == "summarize-active-todos":
-        result = safe_execute(
-            lambda: todo_service.summarize_active_todos(),
-            "Failed to summarize active todos"
-        )
-        if isinstance(result, Exception):
-            return [TextContent(type="text", text=create_error_response(result.args[0] if result.args else "Unknown error")["content"][0]["text"])]
-        return [TextContent(type="text", text=result)]
-    
     elif tool_name == "skip-todo":
         try:
             validated_data = SkipTodosSchema(**arguments)
@@ -229,12 +247,38 @@ async def handle_tool_call(tool_name: str, arguments: dict[str, Any]) -> list[Te
                 return [TextContent(type="text", text=create_error_response("No todos were skipped. All specified todos are either already completed or do not exist.")["content"][0]["text"])]
             elif len(skipped_todos) == 1:
                 result = format_todo(skipped_todos[0])
-                return [TextContent(type="text", text=f"⏭️ Todo Skipped:\n\n{result}")]
+                return [TextContent(type="text", text=f"⁉ Todo Skipped:\n\n{result}")]
             else:
                 result = format_todo_list(skipped_todos)
-                return [TextContent(type="text", text=f"⏭️ {len(skipped_todos)} Todos Skipped:\n\n{result}")]
+                return [TextContent(type="text", text=f"⁉ {len(skipped_todos)} Todos Skipped:\n\n{result}")]
         except Exception as e:
             return [TextContent(type="text", text=create_error_response(f"Failed to skip todos: {str(e)}")["content"][0]["text"])]
+    
+    elif tool_name == "mark-todos-not-completed":
+        try:
+            validated_data = MarkTodosNotCompletedSchema(**arguments)
+            updated_todos = todo_service.mark_todos_not_completed(validated_data.ids)
+            if len(updated_todos) == 0:
+                return [TextContent(type="text", text=create_error_response("No todos were updated. All specified todos do not exist.")["content"][0]["text"])]
+            elif len(updated_todos) == 1:
+                result = format_todo(updated_todos[0])
+                return [TextContent(type="text", text=f"✗ Todo Marked as Not Completed:\n\n{result}")]
+            else:
+                result = format_todo_list(updated_todos)
+                return [TextContent(type="text", text=f"✗ {len(updated_todos)} Todos Marked as Not Completed:\n\n{result}")]
+        except Exception as e:
+            return [TextContent(type="text", text=create_error_response(f"Failed to mark todos as not completed: {str(e)}")["content"][0]["text"])]
+    
+    elif tool_name == "read-next-todo":
+        result = safe_execute(
+            lambda: todo_service.get_next_todo_after_last_completed(),
+            "Failed to get next todo after last completed"
+        )
+        if isinstance(result, Exception):
+            return [TextContent(type="text", text=create_error_response(result.args[0] if result.args else "Unknown error")["content"][0]["text"])]
+        if result is None:
+            return [TextContent(type="text", text="No active todos found.")]
+        return [TextContent(type="text", text=f"📖 Next Todo:\n\n{format_todo(result)}")]
     
     elif tool_name == "clear-todo-list":
         try:
@@ -257,24 +301,53 @@ async def list_tools_handler() -> list[Tool]:
     return [
         Tool(
             name="create-todo",
-            description="Create one or more todo items. Accepts either a single todo (title, description) or multiple todos (todos array). For single todo, provide 'title' and 'description'. For multiple todos, provide 'todos' array.",
+            description="Create one or more todo items at specific orders. Accepts either a single todo (title, description, order) or multiple todos (todos array). Order is required (1-based). For single todo, provide 'title', 'description', and 'order'. For multiple todos, provide 'todos' array with each having order.",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "title": {"type": "string", "minLength": 1, "description": "Title for single todo (use with description)"},
-                    "description": {"type": "string", "minLength": 1, "description": "Description for single todo (use with title)"},
+                    "title": {"type": "string", "minLength": 1, "description": "Title for single todo (use with description and order)"},
+                    "description": {"type": "string", "minLength": 1, "description": "Description for single todo (use with title and order)"},
+                    "order": {"type": "integer", "minimum": 1, "description": "Order to create at (1-based, required for single todo)"},
                     "todos": {
                         "type": "array",
                         "items": {
                             "type": "object",
                             "properties": {
                                 "title": {"type": "string", "minLength": 1},
-                                "description": {"type": "string", "minLength": 1}
+                                "description": {"type": "string", "minLength": 1},
+                                "order": {"type": "integer", "minimum": 1, "description": "Order to create at (1-based, required)"}
+                            },
+                            "required": ["title", "description", "order"]
+                        },
+                        "minItems": 1,
+                        "description": "Array of todos to create (each with title, description, and order). Use this for multiple todos."
+                    }
+                },
+                "required": []
+            }
+        ),
+        Tool(
+            name="insert-todo",
+            description="Insert one or more todo items at a specific order. Accepts either a single todo (title, description, optional order) or multiple todos (todos array). For single todo, provide 'title', 'description', and optionally 'order' (1-based). For multiple todos, provide 'todos' array.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "minLength": 1, "description": "Title for single todo (use with description)"},
+                    "description": {"type": "string", "minLength": 1, "description": "Description for single todo (use with title)"},
+                    "order": {"type": "integer", "minimum": 1, "description": "Order to insert at (1-based, optional). If not provided, inserts at the end."},
+                    "todos": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "title": {"type": "string", "minLength": 1},
+                                "description": {"type": "string", "minLength": 1},
+                                "order": {"type": "integer", "minimum": 1, "description": "Order to insert at (1-based, optional)"}
                             },
                             "required": ["title", "description"]
                         },
                         "minItems": 1,
-                        "description": "Array of todos to create (each with title and description). Use this for multiple todos."
+                        "description": "Array of todos to insert (each with title, description, and optionally order). Use this for multiple todos."
                     }
                 }
             }
@@ -297,13 +370,14 @@ async def list_tools_handler() -> list[Tool]:
         ),
         Tool(
             name="update-todo",
-            description="Update a todo title or description",
+            description="Update a todo's title, description, or order. All fields are optional except id.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "id": {"type": "string", "description": "Todo ID (UUID format)"},
-                    "title": {"type": "string", "minLength": 1, "description": "Title is required"},
-                    "description": {"type": "string", "minLength": 1, "description": "Description is required"}
+                    "title": {"type": "string", "minLength": 1, "description": "New title (optional)"},
+                    "description": {"type": "string", "minLength": 1, "description": "New description (optional)"},
+                    "order": {"type": "integer", "minimum": 1, "description": "New order/position (1-based, optional). If provided, the todo will be moved to this position."}
                 },
                 "required": ["id"]
             }
@@ -358,8 +432,8 @@ async def list_tools_handler() -> list[Tool]:
             inputSchema={"type": "object", "properties": {}}
         ),
         Tool(
-            name="summarize-active-todos",
-            description="Generate a summary of all active (non-completed) todos",
+            name="read-next-todo",
+            description="Get the next todo after the most recently completed todo. Returns the first active (non-completed) todo that comes after the last completed todo in order. If no todos are completed, returns the first active todo in the list.",
             inputSchema={"type": "object", "properties": {}}
         ),
         Tool(
@@ -373,6 +447,22 @@ async def list_tools_handler() -> list[Tool]:
                         "items": {"type": "string"},
                         "minItems": 1,
                         "description": "List of todo IDs to skip (at least one required, UUID format)"
+                    }
+                },
+                "required": ["ids"]
+            }
+        ),
+        Tool(
+            name="mark-todos-not-completed",
+            description="Mark one or more todos as not completed (active). This clears both completed and skipped status, making the todos active again.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 1,
+                        "description": "List of todo IDs to mark as not completed (at least one required, UUID format)"
                     }
                 },
                 "required": ["ids"]
