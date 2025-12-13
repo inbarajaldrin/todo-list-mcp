@@ -11,7 +11,6 @@ WHY SEPARATE FORMATTERS?
 - Makes it easier to change display formats without affecting core functionality
 - Centralizes presentation concerns in one place
 """
-from datetime import datetime
 from src.models.todo import Todo
 
 
@@ -42,10 +41,6 @@ def format_todo(todo: Todo) -> str:
     else:
         status_emoji = '✗'
     
-    # Parse ISO timestamps and format them
-    created_at = datetime.fromisoformat(todo.created_at.replace('Z', '+00:00') if 'Z' in todo.created_at else todo.created_at)
-    updated_at = datetime.fromisoformat(todo.updated_at.replace('Z', '+00:00') if 'Z' in todo.updated_at else todo.updated_at)
-    
     status_text = ""
     if todo.completed:
         status_text = "Status: Completed"
@@ -55,15 +50,11 @@ def format_todo(todo: Todo) -> str:
         status_text = "Status: Not completed"
     
     return f"""
-## {todo.order}. {todo.title} {status_emoji}
+## {todo.order}. {todo.task_name} {status_emoji}
 
 Order: {todo.order}
 ID: {todo.id}
 {status_text}
-Created: {created_at.strftime('%Y-%m-%d %H:%M:%S')}
-Updated: {updated_at.strftime('%Y-%m-%d %H:%M:%S')}
-
-{todo.description}
 """.strip()
 
 

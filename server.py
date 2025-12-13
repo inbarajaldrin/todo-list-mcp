@@ -37,8 +37,7 @@ from src.models.todo import (
     MarkTodosNotCompletedSchema,
     InsertTodoSchema,
     InsertTodosSchema,
-    SearchTodosByTitleSchema,
-    SearchTodosByDateSchema
+    SearchTodosByTaskNameSchema
 )
 
 # Import services
@@ -95,7 +94,7 @@ def safe_execute(operation, error_message: str):
 # Tool 1: Create a new todo
 # 
 # This tool:
-# 1. Validates the input (title and description)
+# 1. Validates the input (taskName and order)
 # 2. Creates a new todo using the service
 # 3. Returns the formatted todo
 # 
@@ -178,8 +177,6 @@ async def handle_tool_call(tool_name: str, arguments: dict[str, Any]) -> list[Te
     elif tool_name == "update-todo":
         try:
             validated_data = UpdateTodoSchema(**arguments)
-            if not validated_data.title and not validated_data.description:
-                return [TextContent(type="text", text=create_error_response("At least one field (title or description) must be provided")["content"][0]["text"])]
             updated_todo = todo_service.update_todo(validated_data)
             if not updated_todo:
                 return [TextContent(type="text", text=create_error_response(f"Todo with ID {validated_data.id} not found")["content"][0]["text"])]
@@ -208,27 +205,18 @@ async def handle_tool_call(tool_name: str, arguments: dict[str, Any]) -> list[Te
             success = todo_service.delete_todo(validated_data.id)
             if not success:
                 return [TextContent(type="text", text=create_error_response(f"Failed to delete todo with ID {validated_data.id}")["content"][0]["text"])]
-            return [TextContent(type="text", text=f"✅ Todo Deleted: \"{todo.title}\"")]
+            return [TextContent(type="text", text=f"✅ Todo Deleted: \"{todo.task_name}\"")]
         except Exception as e:
             return [TextContent(type="text", text=create_error_response(f"Failed to delete todo: {str(e)}")["content"][0]["text"])]
     
-    elif tool_name == "search-todos-by-title":
+    elif tool_name == "search-todos-by-task-name":
         try:
-            validated_data = SearchTodosByTitleSchema(**arguments)
-            todos = todo_service.search_by_title(validated_data.title)
+            validated_data = SearchTodosByTaskNameSchema(**arguments)
+            todos = todo_service.search_by_task_name(validated_data.task_name)
             result = format_todo_list(todos)
             return [TextContent(type="text", text=result)]
         except Exception as e:
             return [TextContent(type="text", text=create_error_response(f"Failed to search todos: {str(e)}")["content"][0]["text"])]
-    
-    elif tool_name == "search-todos-by-date":
-        try:
-            validated_data = SearchTodosByDateSchema(**arguments)
-            todos = todo_service.search_by_date(validated_data.date)
-            result = format_todo_list(todos)
-            return [TextContent(type="text", text=result)]
-        except Exception as e:
-            return [TextContent(type="text", text=create_error_response(f"Failed to search todos by date: {str(e)}")["content"][0]["text"])]
     
     elif tool_name == "list-active-todos":
         result = safe_execute(
@@ -301,26 +289,24 @@ async def list_tools_handler() -> list[Tool]:
     return [
         Tool(
             name="create-todo",
-            description="Create one or more todo items at specific orders. Accepts either a single todo (title, description, order) or multiple todos (todos array). Order is required (1-based). For single todo, provide 'title', 'description', and 'order'. For multiple todos, provide 'todos' array with each having order.",
+            description="Create one or more todo items at specific orders. Accepts either a single todo (taskName, order) or multiple todos (todos array). Order is required (1-based). For single todo, provide 'taskName' and 'order'. For multiple todos, provide 'todos' array with each having taskName and order.",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "title": {"type": "string", "minLength": 1, "description": "Title for single todo (use with description and order)"},
-                    "description": {"type": "string", "minLength": 1, "description": "Description for single todo (use with title and order)"},
+                    "taskName": {"type": "string", "minLength": 1, "description": "Task name for single todo (use with order)"},
                     "order": {"type": "integer", "minimum": 1, "description": "Order to create at (1-based, required for single todo)"},
                     "todos": {
                         "type": "array",
                         "items": {
                             "type": "object",
                             "properties": {
-                                "title": {"type": "string", "minLength": 1},
-                                "description": {"type": "string", "minLength": 1},
+                                "taskName": {"type": "string", "minLength": 1},
                                 "order": {"type": "integer", "minimum": 1, "description": "Order to create at (1-based, required)"}
                             },
-                            "required": ["title", "description", "order"]
+                            "required": ["taskName", "order"]
                         },
                         "minItems": 1,
-                        "description": "Array of todos to create (each with title, description, and order). Use this for multiple todos."
+                        "description": "Array of todos to create (each with taskName and order). Use this for multiple todos."
                     }
                 },
                 "required": []
@@ -328,26 +314,24 @@ async def list_tools_handler() -> list[Tool]:
         ),
         Tool(
             name="insert-todo",
-            description="Insert one or more todo items at a specific order. Accepts either a single todo (title, description, optional order) or multiple todos (todos array). For single todo, provide 'title', 'description', and optionally 'order' (1-based). For multiple todos, provide 'todos' array.",
+            description="Insert one or more todo items at a specific order. Accepts either a single todo (taskName, optional order) or multiple todos (todos array). For single todo, provide 'taskName' and optionally 'order' (1-based). For multiple todos, provide 'todos' array.",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "title": {"type": "string", "minLength": 1, "description": "Title for single todo (use with description)"},
-                    "description": {"type": "string", "minLength": 1, "description": "Description for single todo (use with title)"},
+                    "taskName": {"type": "string", "minLength": 1, "description": "Task name for single todo"},
                     "order": {"type": "integer", "minimum": 1, "description": "Order to insert at (1-based, optional). If not provided, inserts at the end."},
                     "todos": {
                         "type": "array",
                         "items": {
                             "type": "object",
                             "properties": {
-                                "title": {"type": "string", "minLength": 1},
-                                "description": {"type": "string", "minLength": 1},
+                                "taskName": {"type": "string", "minLength": 1},
                                 "order": {"type": "integer", "minimum": 1, "description": "Order to insert at (1-based, optional)"}
                             },
-                            "required": ["title", "description"]
+                            "required": ["taskName"]
                         },
                         "minItems": 1,
-                        "description": "Array of todos to insert (each with title, description, and optionally order). Use this for multiple todos."
+                        "description": "Array of todos to insert (each with taskName and optionally order). Use this for multiple todos."
                     }
                 }
             }
@@ -370,13 +354,12 @@ async def list_tools_handler() -> list[Tool]:
         ),
         Tool(
             name="update-todo",
-            description="Update a todo's title, description, or order. All fields are optional except id.",
+            description="Update a todo's task name or order. All fields are optional except id.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "id": {"type": "string", "description": "Todo ID (UUID format)"},
-                    "title": {"type": "string", "minLength": 1, "description": "New title (optional)"},
-                    "description": {"type": "string", "minLength": 1, "description": "New description (optional)"},
+                    "taskName": {"type": "string", "minLength": 1, "description": "New task name (optional)"},
                     "order": {"type": "integer", "minimum": 1, "description": "New order/position (1-based, optional). If provided, the todo will be moved to this position."}
                 },
                 "required": ["id"]
@@ -405,25 +388,14 @@ async def list_tools_handler() -> list[Tool]:
             }
         ),
         Tool(
-            name="search-todos-by-title",
-            description="Search todos by title (case insensitive partial match)",
+            name="search-todos-by-task-name",
+            description="Search todos by task name (case insensitive partial match)",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "title": {"type": "string", "minLength": 1, "description": "Search term is required"}
+                    "taskName": {"type": "string", "minLength": 1, "description": "Search term is required"}
                 },
-                "required": ["title"]
-            }
-        ),
-        Tool(
-            name="search-todos-by-date",
-            description="Search todos by creation date (format: YYYY-MM-DD)",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "date": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "Date must be in YYYY-MM-DD format"}
-                },
-                "required": ["date"]
+                "required": ["taskName"]
             }
         ),
         Tool(

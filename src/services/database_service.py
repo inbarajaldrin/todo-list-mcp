@@ -50,45 +50,83 @@ class DatabaseService:
         This creates the todos table if it doesn't already exist.
         The schema design incorporates:
         - TEXT primary key for UUID compatibility
-        - NULL completedAt to represent incomplete todos
-        - Timestamp fields for tracking creation and updates
+        - Boolean flags for completion and skipped status
+        - Order field for positioning in the list
         """
-        # Create todos table if it doesn't exist
+        # Check if old table exists with old schema
+        cursor = self.db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='todos'")
+        old_table_exists = cursor.fetchone() is not None
+        
+        if old_table_exists:
+            # Check if we need to migrate from old schema
+            cursor = self.db.execute("PRAGMA table_info(todos)")
+            columns = [row[1] for row in cursor.fetchall()]
+            
+            if 'title' in columns or 'description' in columns or 'createdAt' in columns:
+                # Migrate from old schema to new schema
+                self._migrate_to_new_schema()
+        else:
+            # Create new table with simplified schema
+            self.db.execute('''
+                CREATE TABLE todos (
+                    id TEXT PRIMARY KEY,
+                    task_name TEXT NOT NULL,
+                    completed INTEGER NOT NULL DEFAULT 0, -- 0 = not completed, 1 = completed
+                    skipped INTEGER NOT NULL DEFAULT 0, -- 0 = not skipped, 1 = skipped
+                    "order" INTEGER NOT NULL DEFAULT 0 -- Order/position in the list
+                )
+            ''')
+            self.db.commit()
+    
+    def _migrate_to_new_schema(self):
+        """
+        Migrate from old schema (with timestamps, title, description) to new schema (task_name only)
+        """
+        # Create new table with simplified schema
         self.db.execute('''
-            CREATE TABLE IF NOT EXISTS todos (
+            CREATE TABLE IF NOT EXISTS todos_new (
                 id TEXT PRIMARY KEY,
-                title TEXT NOT NULL,
-                description TEXT NOT NULL,
-                completedAt TEXT NULL, -- ISO timestamp, NULL if not completed
-                skippedAt TEXT NULL, -- ISO timestamp, NULL if not skipped
-                createdAt TEXT NOT NULL,
-                updatedAt TEXT NOT NULL,
-                "order" INTEGER NOT NULL DEFAULT 0 -- Order/position in the list
+                task_name TEXT NOT NULL,
+                completed INTEGER NOT NULL DEFAULT 0,
+                skipped INTEGER NOT NULL DEFAULT 0,
+                "order" INTEGER NOT NULL DEFAULT 0
             )
         ''')
-        self.db.commit()
         
-        # Add skippedAt column to existing tables (migration)
+        # Migrate data: combine title and description into task_name
         try:
-            self.db.execute('ALTER TABLE todos ADD COLUMN skippedAt TEXT NULL')
+            cursor = self.db.execute('''
+                SELECT id, title, description, 
+                       CASE WHEN completedAt IS NOT NULL THEN 1 ELSE 0 END as completed,
+                       CASE WHEN skippedAt IS NOT NULL THEN 1 ELSE 0 END as skipped,
+                       "order"
+                FROM todos
+            ''')
+            
+            for row in cursor.fetchall():
+                todo_id, title, description, completed, skipped, order = row
+                # Combine title and description into task_name
+                task_name = f"{title}"
+                if description:
+                    task_name = f"{title}: {description}" if title else description
+                
+                self.db.execute('''
+                    INSERT INTO todos_new (id, task_name, completed, skipped, "order")
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (todo_id, task_name, completed, skipped, order or 0))
+            
+            # Drop old table and rename new table
+            self.db.execute('DROP TABLE todos')
+            self.db.execute('ALTER TABLE todos_new RENAME TO todos')
             self.db.commit()
-        except sqlite3.OperationalError:
-            # Column already exists, ignore
-            pass
-        
-        # Add order column to existing tables (migration)
-        try:
-            self.db.execute('ALTER TABLE todos ADD COLUMN "order" INTEGER NOT NULL DEFAULT 0')
-            self.db.commit()
-            # Migrate existing todos: assign order based on createdAt
-            cursor = self.db.execute('SELECT id, createdAt FROM todos ORDER BY createdAt')
-            todos = cursor.fetchall()
-            for index, (todo_id, _) in enumerate(todos, start=1):
-                self.db.execute('UPDATE todos SET "order" = ? WHERE id = ?', (index, todo_id))
-            self.db.commit()
-        except sqlite3.OperationalError:
-            # Column already exists, ignore
-            pass
+        except sqlite3.OperationalError as e:
+            # If migration fails, just create the new table structure
+            # This handles the case where the table structure is already updated
+            self.db.rollback()
+            try:
+                self.db.execute('DROP TABLE IF EXISTS todos_new')
+            except:
+                pass
     
     def get_db(self) -> sqlite3.Connection:
         """

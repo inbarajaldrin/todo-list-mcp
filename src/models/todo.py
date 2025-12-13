@@ -11,10 +11,9 @@ WHY USE PYDANTIC?
 - Python type hints give us both static type checking and runtime type safety
 - Models can be converted to JSON Schema, which is useful for MCP clients
 """
-from datetime import datetime
 from typing import Optional
 from uuid import uuid4
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 
 class Todo(BaseModel):
@@ -24,21 +23,14 @@ class Todo(BaseModel):
     This defines the structure of a Todo item in our application.
     We've designed it with several important considerations:
     - IDs use UUID for uniqueness across systems
-    - Timestamps track creation and updates for data lifecycle management
-    - Description supports markdown for rich text formatting
-    - Completion status is tracked both as a boolean flag and with a timestamp
-    - Skipped status is tracked with a timestamp (can be overwritten by completion)
+    - Simple task_name field for the todo content
+    - Completion and skipped status tracked as boolean flags
     - Order field determines the position in the list
     """
     id: str
-    title: str
-    description: str  # Markdown format
-    completed: bool  # Computed from completedAt for backward compatibility
-    completed_at: Optional[str] = Field(None, alias="completedAt")  # ISO timestamp when completed, None if not completed
-    skipped: bool = False  # Computed from skippedAt
-    skipped_at: Optional[str] = Field(None, alias="skippedAt")  # ISO timestamp when skipped, None if not skipped
-    created_at: str = Field(alias="createdAt")
-    updated_at: str = Field(alias="updatedAt")
+    task_name: str = Field(alias="taskName")  # The task name/content
+    completed: bool = False  # Whether the todo is completed
+    skipped: bool = False  # Whether the todo is skipped
     order: int = Field(alias="order")  # Position/order in the list
     
     class Config:
@@ -55,10 +47,9 @@ class Todo(BaseModel):
 # - Keeps validation focused on only what's needed for each operation
 # - Makes the API more intuitive by clearly defining what each operation expects
 
-# Schema for creating a new todo - requires title, description, and order
+# Schema for creating a new todo - requires task_name and order
 class CreateTodoSchema(BaseModel):
-    title: str = Field(..., min_length=1, description="Title is required")
-    description: str = Field(..., min_length=1, description="Description is required")
+    task_name: str = Field(..., min_length=1, description="Task name is required", alias="taskName")
     order: int = Field(..., ge=1, description="Order/position to create at (1-based, required)")
 
 
@@ -77,12 +68,11 @@ class MarkTodosNotCompletedSchema(BaseModel):
     ids: list[str] = Field(..., min_items=1, description="List of todo IDs to mark as not completed (at least one required)")
 
 
-# Schema for updating a todo - requires ID, title, description, and order are optional
+# Schema for updating a todo - requires ID, task_name and order are optional
 class UpdateTodoSchema(BaseModel):
     id: str = Field(..., pattern=r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', 
                      description="Invalid Todo ID")
-    title: Optional[str] = Field(None, min_length=1, description="Title is optional")
-    description: Optional[str] = Field(None, min_length=1, description="Description is optional")
+    task_name: Optional[str] = Field(None, min_length=1, description="Task name is optional", alias="taskName")
     order: Optional[int] = Field(None, ge=1, description="Order/position to move todo to (1-based, optional)")
 
 
@@ -98,20 +88,14 @@ class DeleteTodoSchema(BaseModel):
                     description="Invalid Todo ID")
 
 
-# Schema for searching todos by title - requires search term
-class SearchTodosByTitleSchema(BaseModel):
-    title: str = Field(..., min_length=1, description="Search term is required")
-
-
-# Schema for searching todos by date - requires date in YYYY-MM-DD format
-class SearchTodosByDateSchema(BaseModel):
-    date: str = Field(..., pattern=r'^\d{4}-\d{2}-\d{2}$', description="Date must be in YYYY-MM-DD format")
+# Schema for searching todos by task name - requires search term
+class SearchTodosByTaskNameSchema(BaseModel):
+    task_name: str = Field(..., min_length=1, description="Search term is required", alias="taskName")
 
 
 # Schema for inserting a todo at a specific order
 class InsertTodoSchema(BaseModel):
-    title: str = Field(..., min_length=1, description="Title is required")
-    description: str = Field(..., min_length=1, description="Description is required")
+    task_name: str = Field(..., min_length=1, description="Task name is required", alias="taskName")
     order: Optional[int] = Field(None, ge=1, description="Order/position to insert at (1-based). If not provided, inserts at the end.")
 
 
@@ -131,23 +115,17 @@ def create_todo(data: CreateTodoSchema, order: Optional[int] = None) -> Todo:
     - Makes it easy to change the implementation without affecting code that creates todos
     
     Args:
-        data: The validated input data (title, description, and order)
+        data: The validated input data (task_name and order)
         order: Optional order override. If None, uses data.order.
     
     Returns:
-        A fully formed Todo object with generated ID and timestamps
+        A fully formed Todo object with generated ID
     """
-    now = datetime.utcnow().isoformat()
     return Todo(
         id=str(uuid4()),
-        title=data.title,
-        description=data.description,
+        task_name=data.task_name,
         completed=False,
-        completed_at=None,
         skipped=False,
-        skipped_at=None,
-        created_at=now,
-        updated_at=now,
         order=order if order is not None else data.order
     )
 

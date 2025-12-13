@@ -43,7 +43,7 @@ class TodoService:
         4. Returns the created Todo
         
         Args:
-            data: Validated input data (title, description, and order)
+            data: Validated input data (task_name and order)
         
         Returns:
             The newly created Todo
@@ -63,16 +63,13 @@ class TodoService:
         
         # Prepare the SQL statement for inserting a new todo
         db.execute('''
-            INSERT INTO todos (id, title, description, completedAt, skippedAt, createdAt, updatedAt, "order")
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO todos (id, task_name, completed, skipped, "order")
+            VALUES (?, ?, ?, ?, ?)
         ''', (
             todo.id,
-            todo.title,
-            todo.description,
-            todo.completed_at,
-            todo.skipped_at,
-            todo.created_at,
-            todo.updated_at,
+            todo.task_name,
+            1 if todo.completed else 0,
+            1 if todo.skipped else 0,
             todo.order
         ))
         db.commit()
@@ -88,7 +85,7 @@ class TodoService:
         Each todo must have an order specified, and existing todos will be shifted.
         
         Args:
-            todos_data: List of validated todo data (title, description, and order)
+            todos_data: List of validated todo data (task_name and order)
         
         Returns:
             List of newly created Todos
@@ -110,16 +107,13 @@ class TodoService:
             # Create and insert the todo
             todo = create_todo(data, order=data.order)
             db.execute('''
-                INSERT INTO todos (id, title, description, completedAt, skippedAt, createdAt, updatedAt, "order")
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO todos (id, task_name, completed, skipped, "order")
+                VALUES (?, ?, ?, ?, ?)
             ''', (
                 todo.id,
-                todo.title,
-                todo.description,
-                todo.completed_at,
-                todo.skipped_at,
-                todo.created_at,
-                todo.updated_at,
+                todo.task_name,
+                1 if todo.completed else 0,
+                1 if todo.skipped else 0,
                 todo.order
             ))
             created_todos.append(todo)
@@ -175,13 +169,13 @@ class TodoService:
         Get all active (non-completed) todos
         
         This method returns only todos that haven't been marked as completed.
-        A todo is considered active when its completedAt field is NULL.
+        A todo is considered active when its completed field is 0.
         
         Returns:
             List of active Todos ordered by order
         """
         db = database_service.get_db()
-        cursor = db.execute('SELECT * FROM todos WHERE completedAt IS NULL ORDER BY "order" ASC')
+        cursor = db.execute('SELECT * FROM todos WHERE completed = 0 ORDER BY "order" ASC')
         rows = cursor.fetchall()
         
         # Convert each database row to a Todo object
@@ -198,7 +192,7 @@ class TodoService:
         4. Returns the updated todo
         
         Args:
-            data: The update data (id required, title/description/order optional)
+            data: The update data (id required, task_name/order optional)
         
         Returns:
             The updated Todo if found, None otherwise
@@ -207,10 +201,6 @@ class TodoService:
         todo = self.get_todo(data.id)
         if not todo:
             return None
-        
-        # Create a timestamp for the update
-        from datetime import datetime
-        updated_at = datetime.utcnow().isoformat()
         
         db = database_service.get_db()
         
@@ -236,15 +226,14 @@ class TodoService:
         
         # Update with new values or keep existing ones if not provided
         new_order = data.order if data.order is not None else todo.order
+        new_task_name = data.task_name if data.task_name else todo.task_name
         db.execute('''
             UPDATE todos
-            SET title = ?, description = ?, "order" = ?, updatedAt = ?
+            SET task_name = ?, "order" = ?
             WHERE id = ?
         ''', (
-            data.title if data.title else todo.title,
-            data.description if data.description else todo.description,
+            new_task_name,
             new_order,
-            updated_at,
             todo.id
         ))
         db.commit()
@@ -262,20 +251,17 @@ class TodoService:
         3. Returns the list of updated todos
         
         Args:
-            todos_data: List of validated update data (each with id, optional title/description)
+            todos_data: List of validated update data (each with id, optional task_name)
         
         Returns:
             List of updated Todos (only those that were found and updated)
         """
-        from datetime import datetime
-        updated_at = datetime.utcnow().isoformat()
-        
         updated_todos = []
         db = database_service.get_db()
         
         for data in todos_data:
             # Check if at least one field is provided
-            if not data.title and not data.description:
+            if not data.task_name:
                 continue  # Skip if no fields to update
             
             # Check if the todo exists
@@ -286,12 +272,10 @@ class TodoService:
             # Update with new values or keep existing ones if not provided
             db.execute('''
                 UPDATE todos
-                SET title = ?, description = ?, updatedAt = ?
+                SET task_name = ?
                 WHERE id = ?
             ''', (
-                data.title if data.title else todo.title,
-                data.description if data.description else todo.description,
-                updated_at,
+                data.task_name if data.task_name else todo.task_name,
                 todo.id
             ))
             updated_todos.append(self.get_todo(todo.id))
@@ -305,8 +289,8 @@ class TodoService:
         
         This method:
         1. Checks if the todo exists
-        2. Sets the completedAt timestamp to the current time
-        3. Clears the skippedAt timestamp (completion overwrites skipped status)
+        2. Sets the completed flag to True
+        3. Clears the skipped flag (completion overwrites skipped status)
         4. Returns the updated todo
         
         Args:
@@ -320,18 +304,14 @@ class TodoService:
         if not todo:
             return None
         
-        # Create a timestamp for the completion and update
-        from datetime import datetime
-        now = datetime.utcnow().isoformat()
-        
         db = database_service.get_db()
         
-        # Set the completedAt timestamp and clear skippedAt (completion overwrites skipped)
+        # Set completed flag and clear skipped flag (completion overwrites skipped)
         db.execute('''
             UPDATE todos
-            SET completedAt = ?, skippedAt = NULL, updatedAt = ?
+            SET completed = 1, skipped = 0
             WHERE id = ?
-        ''', (now, now, id))
+        ''', (id,))
         db.commit()
         
         # Return the updated todo
@@ -343,7 +323,7 @@ class TodoService:
         
         This method:
         1. Checks which todos exist and are not completed
-        2. Sets the skippedAt timestamp for those todos
+        2. Sets the skipped flag for those todos
         3. Returns the list of skipped todos
         
         Args:
@@ -352,9 +332,6 @@ class TodoService:
         Returns:
             List of skipped Todos (only non-completed ones)
         """
-        from datetime import datetime
-        now = datetime.utcnow().isoformat()
-        
         skipped_todos = []
         db = database_service.get_db()
         
@@ -364,9 +341,9 @@ class TodoService:
             if todo and not todo.completed:
                 db.execute('''
                     UPDATE todos
-                    SET skippedAt = ?, updatedAt = ?
-                    WHERE id = ? AND completedAt IS NULL
-                ''', (now, now, todo_id))
+                    SET skipped = 1
+                    WHERE id = ? AND completed = 0
+                ''', (todo_id,))
                 skipped_todos.append(self.get_todo(todo_id))
         
         db.commit()
@@ -378,7 +355,7 @@ class TodoService:
         
         This method:
         1. Checks which todos exist
-        2. Clears both completedAt and skippedAt timestamps for those todos
+        2. Clears both completed and skipped flags for those todos
         3. Returns the list of updated todos
         
         Args:
@@ -387,9 +364,6 @@ class TodoService:
         Returns:
             List of updated Todos (marked as not completed)
         """
-        from datetime import datetime
-        now = datetime.utcnow().isoformat()
-        
         updated_todos = []
         db = database_service.get_db()
         
@@ -399,9 +373,9 @@ class TodoService:
             if todo:
                 db.execute('''
                     UPDATE todos
-                    SET completedAt = NULL, skippedAt = NULL, updatedAt = ?
+                    SET completed = 0, skipped = 0
                     WHERE id = ?
-                ''', (now, todo_id))
+                ''', (todo_id,))
                 updated_todos.append(self.get_todo(todo_id))
         
         db.commit()
@@ -442,48 +416,26 @@ class TodoService:
         # Return the number of rows deleted
         return cursor.rowcount
     
-    def search_by_title(self, title: str) -> list[Todo]:
+    def search_by_task_name(self, task_name: str) -> list[Todo]:
         """
-        Search todos by title
+        Search todos by task name
         
         This method performs a case-insensitive partial match search
-        on todo titles.
+        on todo task names.
         
         Args:
-            title: The search term to look for in titles
+            task_name: The search term to look for in task names
         
         Returns:
             List of matching Todos
         """
         # Add wildcards to the search term for partial matching
-        search_term = f'%{title}%'
+        search_term = f'%{task_name}%'
         
         db = database_service.get_db()
         
         # COLLATE NOCASE makes the search case-insensitive
-        cursor = db.execute('SELECT * FROM todos WHERE title LIKE ? COLLATE NOCASE ORDER BY "order" ASC', (search_term,))
-        rows = cursor.fetchall()
-        
-        return [self._row_to_todo(row) for row in rows]
-    
-    def search_by_date(self, date_str: str) -> list[Todo]:
-        """
-        Search todos by date
-        
-        This method finds todos created on a specific date.
-        It matches the start of the ISO string with the given date.
-        
-        Args:
-            date_str: The date to search for in YYYY-MM-DD format
-        
-        Returns:
-            List of matching Todos
-        """
-        # Add wildcard to match the time portion of ISO string
-        date_pattern = f'{date_str}%'
-        
-        db = database_service.get_db()
-        cursor = db.execute('SELECT * FROM todos WHERE createdAt LIKE ? ORDER BY "order" ASC', (date_pattern,))
+        cursor = db.execute('SELECT * FROM todos WHERE task_name LIKE ? COLLATE NOCASE ORDER BY "order" ASC', (search_term,))
         rows = cursor.fetchall()
         
         return [self._row_to_todo(row) for row in rows]
@@ -508,8 +460,8 @@ class TodoService:
         if len(active_todos) == 0:
             return "No active todos found."
         
-        # Create a bulleted list of todo titles
-        summary = '\n'.join(f'- {todo.title}' for todo in active_todos)
+        # Create a bulleted list of todo task names
+        summary = '\n'.join(f'- {todo.task_name}' for todo in active_todos)
         return f"# Active Todos Summary\n\nThere are {len(active_todos)} active todos:\n\n{summary}"
     
     def insert_todo(self, data: InsertTodoSchema) -> Todo:
@@ -523,7 +475,7 @@ class TodoService:
         4. Returns the created todo
         
         Args:
-            data: Validated input data (title, description, optional order)
+            data: Validated input data (task_name, optional order)
         
         Returns:
             The newly inserted Todo
@@ -548,20 +500,17 @@ class TodoService:
         ''', (insert_order,))
         
         # Create the todo with the specified order
-        todo = create_todo(CreateTodoSchema(title=data.title, description=data.description, order=insert_order), order=insert_order)
+        todo = create_todo(CreateTodoSchema(task_name=data.task_name, order=insert_order), order=insert_order)
         
         # Insert the new todo
         db.execute('''
-            INSERT INTO todos (id, title, description, completedAt, skippedAt, createdAt, updatedAt, "order")
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO todos (id, task_name, completed, skipped, "order")
+            VALUES (?, ?, ?, ?, ?)
         ''', (
             todo.id,
-            todo.title,
-            todo.description,
-            todo.completed_at,
-            todo.skipped_at,
-            todo.created_at,
-            todo.updated_at,
+            todo.task_name,
+            1 if todo.completed else 0,
+            1 if todo.skipped else 0,
             todo.order
         ))
         db.commit()
@@ -606,18 +555,15 @@ class TodoService:
             ''', (insert_order,))
             
             # Create and insert the todo
-            todo = create_todo(CreateTodoSchema(title=data.title, description=data.description, order=insert_order), order=insert_order)
+            todo = create_todo(CreateTodoSchema(task_name=data.task_name, order=insert_order), order=insert_order)
             db.execute('''
-                INSERT INTO todos (id, title, description, completedAt, skippedAt, createdAt, updatedAt, "order")
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO todos (id, task_name, completed, skipped, "order")
+                VALUES (?, ?, ?, ?, ?)
             ''', (
                 todo.id,
-                todo.title,
-                todo.description,
-                todo.completed_at,
-                todo.skipped_at,
-                todo.created_at,
-                todo.updated_at,
+                todo.task_name,
+                1 if todo.completed else 0,
+                1 if todo.skipped else 0,
                 todo.order
             ))
             inserted_todos.append(todo)
@@ -630,7 +576,7 @@ class TodoService:
         Get the next todo after the most recently completed todo
         
         This method:
-        1. Finds the most recently completed todo (by completedAt timestamp)
+        1. Finds the most recently completed todo (by order, highest order among completed)
         2. Gets the next todo in order that is not completed
         3. If no todos are completed, returns the first active todo
         4. Returns None if there's no next todo or no active todos
@@ -640,11 +586,11 @@ class TodoService:
         """
         db = database_service.get_db()
         
-        # Find the most recently completed todo
+        # Find the most recently completed todo (highest order among completed)
         cursor = db.execute('''
             SELECT * FROM todos 
-            WHERE completedAt IS NOT NULL 
-            ORDER BY completedAt DESC 
+            WHERE completed = 1 
+            ORDER BY "order" DESC 
             LIMIT 1
         ''')
         row = cursor.fetchone()
@@ -653,7 +599,7 @@ class TodoService:
             # No completed todos exist, return the first active todo
             cursor = db.execute('''
                 SELECT * FROM todos 
-                WHERE completedAt IS NULL 
+                WHERE completed = 0 
                 ORDER BY "order" ASC 
                 LIMIT 1
             ''')
@@ -668,7 +614,7 @@ class TodoService:
         # Find the next todo in order that is not completed
         cursor = db.execute('''
             SELECT * FROM todos 
-            WHERE "order" > ? AND completedAt IS NULL 
+            WHERE "order" > ? AND completed = 0 
             ORDER BY "order" ASC 
             LIMIT 1
         ''', (last_completed.order,))
@@ -699,50 +645,15 @@ class TodoService:
         Returns:
             A properly formatted Todo object
         """
-        # SQLite returns rows as tuples: (id, title, description, completedAt, skippedAt, createdAt, updatedAt, order)
-        # Handle old schemas (6, 7 columns) and new schema (8 columns)
-        if len(row) == 6:
-            # Old schema without skippedAt and order
-            return Todo(
-                id=row[0],
-                title=row[1],
-                description=row[2],
-                completed_at=row[3],
-                skipped_at=None,
-                created_at=row[4],
-                updated_at=row[5],
-                order=0,  # Default order for old todos
-                completed=row[3] is not None,
-                skipped=False
-            )
-        elif len(row) == 7:
-            # Old schema with skippedAt but no order
-            return Todo(
-                id=row[0],
-                title=row[1],
-                description=row[2],
-                completed_at=row[3],
-                skipped_at=row[4],
-                created_at=row[5],
-                updated_at=row[6],
-                order=0,  # Default order for old todos
-                completed=row[3] is not None,
-                skipped=row[4] is not None
-            )
-        else:
-            # New schema with skippedAt and order (8 columns)
-            return Todo(
-                id=row[0],
-                title=row[1],
-                description=row[2],
-                completed_at=row[3],
-                skipped_at=row[4],
-                created_at=row[5],
-                updated_at=row[6],
-                order=row[7],
-                completed=row[3] is not None,  # Computed from completedAt
-                skipped=row[4] is not None  # Computed from skippedAt
-            )
+        # SQLite returns rows as tuples: (id, task_name, completed, skipped, order)
+        # New simplified schema (5 columns)
+        return Todo(
+            id=row[0],
+            task_name=row[1],
+            completed=bool(row[2]),  # Convert integer (0/1) to boolean
+            skipped=bool(row[3]),    # Convert integer (0/1) to boolean
+            order=row[4]
+        )
 
 
 # Create a singleton instance for use throughout the application
